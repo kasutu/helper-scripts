@@ -128,12 +128,8 @@ parse_arguments() {
 
 # Check if running with appropriate privileges
 check_privileges() {
-    if [[ $EUID -eq 0 ]]; then
-        error "This script should not be run as root. Please run as a user with sudo privileges."
-    fi
-
-    if ! sudo -n true 2>/dev/null; then
-        error "This script requires sudo privileges. Please run with a user that has sudo access."
+    if [[ $EUID -ne 0 ]]; then
+        error "This script must be run as root. Please run with sudo or as root user."
     fi
 }
 
@@ -143,8 +139,8 @@ check_nginx() {
         error "Nginx is not installed. Please run the nginx-setup.sh script first."
     fi
 
-    if ! sudo systemctl is-active --quiet nginx; then
-        error "Nginx is not running. Please start Nginx: sudo systemctl start nginx"
+    if ! systemctl is-active --quiet nginx; then
+        error "Nginx is not running. Please start Nginx: systemctl start nginx"
     fi
 }
 
@@ -163,18 +159,18 @@ remove_proxy() {
 
     # Remove enabled symlink
     if [[ -L "$enabled_file" ]]; then
-        sudo rm "$enabled_file"
+        rm "$enabled_file"
         log "Removed enabled configuration for $HOST"
     fi
 
     # Backup and remove configuration file
     local backup_file="${config_file}.removed.$(date +%Y%m%d_%H%M%S)"
-    sudo mv "$config_file" "$backup_file"
+    mv "$config_file" "$backup_file"
     log "Configuration file backed up to $backup_file"
 
     # Test and reload Nginx
-    if sudo nginx -t; then
-        sudo systemctl reload nginx
+    if nginx -t; then
+        systemctl reload nginx
         log "Nginx configuration reloaded successfully"
         info "Reverse proxy for $HOST has been removed"
     else
@@ -188,7 +184,7 @@ create_http_config() {
 
     log "Creating HTTP reverse proxy configuration for $HOST"
 
-    sudo tee "$config_file" > /dev/null <<EOF
+    tee "$config_file" > /dev/null <<EOF
 server {
     listen 80;
     listen [::]:80;
@@ -261,7 +257,7 @@ create_https_config() {
 
     log "Creating HTTPS reverse proxy configuration for $HOST"
 
-    sudo tee "$config_file" > /dev/null <<EOF
+    tee "$config_file" > /dev/null <<EOF
 # HTTP to HTTPS redirect
 server {
     listen 80;
@@ -343,7 +339,7 @@ server {
 EOF
 
     warn "SSL configuration created but certificates are commented out."
-    warn "Run 'sudo certbot --nginx -d $HOST' to obtain and configure SSL certificates."
+    warn "Run 'certbot --nginx -d $HOST' to obtain and configure SSL certificates."
     log "HTTPS configuration created for $HOST"
 }
 
@@ -353,7 +349,7 @@ enable_site() {
     local enabled_file="/etc/nginx/sites-enabled/$HOST"
 
     if [[ -f "$config_file" ]]; then
-        sudo ln -sf "$config_file" "$enabled_file"
+        ln -sf "$config_file" "$enabled_file"
         log "Site configuration enabled for $HOST"
     else
         error "Configuration file does not exist: $config_file"
@@ -364,9 +360,9 @@ enable_site() {
 apply_configuration() {
     log "Testing Nginx configuration..."
     
-    if sudo nginx -t; then
+    if nginx -t; then
         log "Configuration test passed"
-        sudo systemctl reload nginx
+        systemctl reload nginx
         log "Nginx reloaded successfully"
     else
         error "Nginx configuration test failed. Please check the configuration."
@@ -395,9 +391,9 @@ show_success_message() {
     echo
     if [ "$SSL_ENABLED" = true ]; then
         echo -e "${BLUE}Next Steps for SSL:${NC}"
-        echo -e "  1. Install Certbot: ${YELLOW}sudo apt install certbot python3-certbot-nginx${NC}"
-        echo -e "  2. Obtain certificate: ${YELLOW}sudo certbot --nginx -d $HOST${NC}"
-        echo -e "  3. Test auto-renewal: ${YELLOW}sudo certbot renew --dry-run${NC}"
+        echo -e "  1. Install Certbot: ${YELLOW}apt install certbot python3-certbot-nginx${NC}"
+        echo -e "  2. Obtain certificate: ${YELLOW}certbot --nginx -d $HOST${NC}"
+        echo -e "  3. Test auto-renewal: ${YELLOW}certbot renew --dry-run${NC}"
         echo
     fi
     echo -e "${BLUE}Test the configuration:${NC}"
@@ -426,7 +422,7 @@ main() {
     if [[ -f "/etc/nginx/sites-available/$HOST" ]]; then
         warn "Configuration for $HOST already exists. Creating backup..."
         local backup_file="/etc/nginx/sites-available/$HOST.backup.$(date +%Y%m%d_%H%M%S)"
-        sudo cp "/etc/nginx/sites-available/$HOST" "$backup_file"
+        cp "/etc/nginx/sites-available/$HOST" "$backup_file"
         log "Existing configuration backed up to $backup_file"
     fi
 

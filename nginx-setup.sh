@@ -29,8 +29,8 @@ error() {
 
 # Check if running as root
 check_root() {
-    if [[ $EUID -eq 0 ]]; then
-        error "This script should not be run as root. Please run as a user with sudo privileges."
+    if [[ $EUID -ne 0 ]]; then
+        error "This script must be run as root. Please run with sudo or as root user."
     fi
 }
 
@@ -47,21 +47,21 @@ check_ubuntu() {
 # Update system packages
 update_system() {
     log "Updating system packages..."
-    sudo apt update && sudo apt upgrade -y
+    apt update && apt upgrade -y
     log "System packages updated successfully"
 }
 
 # Install Nginx
 install_nginx() {
     log "Installing Nginx..."
-    sudo apt install nginx -y
+    apt install nginx -y
     
     # Enable and start Nginx
-    sudo systemctl enable nginx
-    sudo systemctl start nginx
+    systemctl enable nginx
+    systemctl start nginx
     
     # Check if Nginx is running
-    if sudo systemctl is-active --quiet nginx; then
+    if systemctl is-active --quiet nginx; then
         log "Nginx installed and started successfully"
     else
         error "Failed to start Nginx"
@@ -73,11 +73,11 @@ configure_firewall() {
     log "Configuring UFW firewall..."
     
     # Enable UFW if not already enabled
-    sudo ufw --force enable
+    ufw --force enable
     
     # Allow SSH, HTTP, and HTTPS
-    sudo ufw allow OpenSSH
-    sudo ufw allow 'Nginx Full'
+    ufw allow OpenSSH
+    ufw allow 'Nginx Full'
     
     log "Firewall configured successfully"
 }
@@ -87,7 +87,7 @@ backup_config() {
     log "Backing up default Nginx configuration..."
     
     if [[ -f /etc/nginx/sites-available/default ]]; then
-        sudo cp /etc/nginx/sites-available/default /etc/nginx/sites-available/default.backup.$(date +%Y%m%d_%H%M%S)
+        cp /etc/nginx/sites-available/default /etc/nginx/sites-available/default.backup.$(date +%Y%m%d_%H%M%S)
         log "Default configuration backed up"
     fi
 }
@@ -97,7 +97,7 @@ remove_default_site() {
     log "Removing default Nginx site..."
     
     if [[ -L /etc/nginx/sites-enabled/default ]]; then
-        sudo unlink /etc/nginx/sites-enabled/default
+        unlink /etc/nginx/sites-enabled/default
         log "Default site removed"
     fi
 }
@@ -110,7 +110,7 @@ create_initial_proxy() {
     
     log "Creating reverse proxy for $domain -> $target_ip:$target_port"
     
-    sudo tee /etc/nginx/sites-available/$domain > /dev/null <<EOF
+    tee /etc/nginx/sites-available/$domain > /dev/null <<EOF
 server {
     listen 80;
     listen [::]:80;
@@ -140,7 +140,7 @@ server {
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_cache_bypass \$http_upgrade;
-        
+
         # Timeout settings
         proxy_connect_timeout 300;
         proxy_send_timeout 300;
@@ -160,9 +160,9 @@ server {
     error_log /var/log/nginx/$domain.error.log;
 }
 EOF
-
+    
     # Enable the site
-    sudo ln -sf /etc/nginx/sites-available/$domain /etc/nginx/sites-enabled/
+    ln -sf /etc/nginx/sites-available/$domain /etc/nginx/sites-enabled/
     log "Reverse proxy configuration created for $domain"
 }
 
@@ -170,7 +170,7 @@ EOF
 create_ssl_template() {
     log "Creating SSL configuration template..."
     
-    sudo tee /etc/nginx/snippets/ssl-params.conf > /dev/null <<EOF
+    tee /etc/nginx/snippets/ssl-params.conf > /dev/null <<EOF
 # SSL Configuration
 ssl_protocols TLSv1.2 TLSv1.3;
 ssl_prefer_server_ciphers on;
@@ -189,7 +189,7 @@ add_header X-Frame-Options DENY;
 add_header X-Content-Type-Options nosniff;
 add_header X-XSS-Protection "1; mode=block";
 EOF
-
+    
     log "SSL configuration template created at /etc/nginx/snippets/ssl-params.conf"
 }
 
@@ -198,7 +198,7 @@ generate_dhparam() {
     log "Generating DH parameters for SSL (this may take a while)..."
     
     if [[ ! -f /etc/nginx/dhparam.pem ]]; then
-        sudo openssl dhparam -out /etc/nginx/dhparam.pem 2048
+        openssl dhparam -out /etc/nginx/dhparam.pem 2048
         log "DH parameters generated"
     else
         log "DH parameters already exist"
@@ -209,7 +209,7 @@ generate_dhparam() {
 test_nginx_config() {
     log "Testing Nginx configuration..."
     
-    if sudo nginx -t; then
+    if nginx -t; then
         log "Nginx configuration test passed"
     else
         error "Nginx configuration test failed"
@@ -220,9 +220,9 @@ test_nginx_config() {
 reload_nginx() {
     log "Reloading Nginx..."
     
-    sudo systemctl reload nginx
+    systemctl reload nginx
     
-    if sudo systemctl is-active --quiet nginx; then
+    if systemctl is-active --quiet nginx; then
         log "Nginx reloaded successfully"
     else
         error "Failed to reload Nginx"
@@ -233,7 +233,7 @@ reload_nginx() {
 setup_log_rotation() {
     log "Setting up log rotation..."
     
-    sudo tee /etc/logrotate.d/nginx-custom > /dev/null <<EOF
+    tee /etc/logrotate.d/nginx-custom > /dev/null <<EOF
 /var/log/nginx/*.log {
     daily
     missingok
@@ -253,7 +253,7 @@ setup_log_rotation() {
     endscript
 }
 EOF
-
+    
     log "Log rotation configured"
 }
 
@@ -261,7 +261,7 @@ EOF
 create_maintenance_script() {
     log "Creating maintenance script..."
     
-    sudo tee /usr/local/bin/nginx-maintenance > /dev/null <<'EOF'
+    tee /usr/local/bin/nginx-maintenance > /dev/null <<'EOF'
 #!/bin/bash
 
 # Nginx maintenance script
@@ -291,8 +291,8 @@ case "$1" in
         ;;
 esac
 EOF
-
-    sudo chmod +x /usr/local/bin/nginx-maintenance
+    
+    chmod +x /usr/local/bin/nginx-maintenance
     log "Maintenance script created at /usr/local/bin/nginx-maintenance"
 }
 
@@ -307,9 +307,9 @@ show_completion_message() {
     echo -e "  ${YELLOW}crm.splitscale.ph${NC} -> ${YELLOW}128.199.126.68:3000${NC}"
     echo
     echo -e "${BLUE}Useful commands:${NC}"
-    echo -e "  Test configuration: ${YELLOW}sudo nginx -t${NC}"
-    echo -e "  Reload Nginx: ${YELLOW}sudo systemctl reload nginx${NC}"
-    echo -e "  Check status: ${YELLOW}sudo systemctl status nginx${NC}"
+    echo -e "  Test configuration: ${YELLOW}nginx -t${NC}"
+    echo -e "  Reload Nginx: ${YELLOW}systemctl reload nginx${NC}"
+    echo -e "  Check status: ${YELLOW}systemctl status nginx${NC}"
     echo -e "  Maintenance script: ${YELLOW}nginx-maintenance status${NC}"
     echo
     echo -e "${BLUE}Next steps:${NC}"
