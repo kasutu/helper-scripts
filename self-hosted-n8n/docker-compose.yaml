@@ -4,6 +4,7 @@
 
 services:
   postgres:
+    container_name: n8n-postgres
     image: postgres:16
     restart: unless-stopped
     environment:
@@ -13,7 +14,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -h localhost -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -h localhost -U ${POSTGRES_USER} -d ${POSTGRES_DB}",
+        ]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -21,6 +26,7 @@ services:
       - n8n-network
 
   n8n:
+    container_name: n8n-app
     image: n8nio/n8n:latest
     restart: unless-stopped
     environment:
@@ -31,63 +37,19 @@ services:
       - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
       - DB_POSTGRESDB_USER=${POSTGRES_USER}
       - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
-      
+
       # Required n8n Configuration
       - N8N_HOST=${N8N_HOST}
       - N8N_PORT=5678
       - N8N_PROTOCOL=${N8N_PROTOCOL}
       - WEBHOOK_URL=${WEBHOOK_URL}
-      
+
       # Required Security
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
-      
+
       # Timezone
       - GENERIC_TIMEZONE=${GENERIC_TIMEZONE}
-      
-      # Optional: Email Configuration (commented out - uncomment if needed)
-      # - N8N_EMAIL_MODE=smtp
-      # - N8N_SMTP_HOST=${SMTP_HOST}
-      # - N8N_SMTP_PORT=${SMTP_PORT}
-      # - N8N_SMTP_USER=${SMTP_USER}
-      # - N8N_SMTP_PASS=${SMTP_PASS}
-      # - N8N_SMTP_SENDER=${SMTP_SENDER}
-      
-      # Optional: Metrics (commented out)
-      # - N8N_METRICS=true
-      # - N8N_METRICS_PREFIX=n8n_
-      
-      # Optional: Logs (commented out)
-      # - N8N_LOG_LEVEL=info
-      # - N8N_LOG_OUTPUT=console
-      
-      # Optional: Security Headers (commented out)
-      # - N8N_SECURE_COOKIE=true
-      # - N8N_DISABLE_UI=${N8N_DISABLE_UI}
-      
-      # Optional: Editor Configuration (commented out)
-      # - N8N_EDITOR_BASE_URL=${N8N_EDITOR_BASE_URL}
-      # - N8N_DEFAULT_LOCALE=${N8N_DEFAULT_LOCALE}
-      
-      # Optional: Execution Configuration (commented out)
-      # - EXECUTIONS_PROCESS=main
-      # - EXECUTIONS_MODE=regular
-      # - EXECUTIONS_TIMEOUT=${EXECUTIONS_TIMEOUT}
-      # - EXECUTIONS_TIMEOUT_MAX=${EXECUTIONS_TIMEOUT_MAX}
-      
-      # Optional: Queue Configuration (commented out - for production scaling)
-      # - QUEUE_BULL_REDIS_HOST=redis
-      # - QUEUE_BULL_REDIS_PORT=6379
-      # - QUEUE_BULL_REDIS_DB=${REDIS_DB}
-      # - QUEUE_BULL_REDIS_PASSWORD=${REDIS_PASSWORD}
-      
-      # Optional: Workflow Configuration (commented out)
-      # - WORKFLOWS_DEFAULT_NAME=${WORKFLOWS_DEFAULT_NAME}
-      # - N8N_ONBOARDING_FLOW_DISABLED=${N8N_ONBOARDING_FLOW_DISABLED}
-      
-      # Optional: User Management (commented out)
-      # - N8N_USER_MANAGEMENT_DISABLED=${N8N_USER_MANAGEMENT_DISABLED}
-      # - N8N_PUBLIC_API_DISABLED=${N8N_PUBLIC_API_DISABLED}
-      
+
     ports:
       - "${N8N_PORT}:5678"
     volumes:
@@ -102,61 +64,40 @@ services:
       - n8n-network
 
   ollama:
+    container_name: n8n-ollama
     image: ollama/ollama:latest
     restart: unless-stopped
     environment:
       - OLLAMA_HOST=0.0.0.0
       - OLLAMA_ORIGINS=*
-      # Optional: GPU support (uncomment if you have NVIDIA GPU)
-      # - NVIDIA_VISIBLE_DEVICES=all
-      # - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     ports:
       - "${OLLAMA_PORT}:11434"
     volumes:
       - ollama_data:/root/.ollama
-    # Optional: GPU support (uncomment if you have NVIDIA GPU)
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
     networks:
       - n8n-network
 
-  # Optional: Redis for queue management (commented out - uncomment for production scaling)
-  # redis:
-  #   image: redis:7-alpine
-  #   restart: unless-stopped
-  #   environment:
-  #     - REDIS_PASSWORD=${REDIS_PASSWORD}
-  #   volumes:
-  #     - redis_data:/data
-  #   command: redis-server --requirepass ${REDIS_PASSWORD}
-  #   networks:
-  #     - n8n-network
-
-  # Optional: Nginx reverse proxy (commented out - uncomment if you want SSL termination)
-  # nginx:
-  #   image: nginx:alpine
-  #   restart: unless-stopped
-  #   ports:
-  #     - "80:80"
-  #     - "443:443"
-  #   volumes:
-  #     - ./nginx.conf:/etc/nginx/nginx.conf:ro
-  #     - ./ssl:/etc/nginx/ssl:ro
-  #   depends_on:
-  #     - n8n
-  #   networks:
-  #     - n8n-network
+  # Optional: Local Whisper API (if community node doesn't work)
+  whisper:
+    container_name: n8n-whisper
+    image: onerahmet/openai-whisper-asr-webservice:latest
+    restart: unless-stopped
+    environment:
+      - ASR_MODEL=base
+      - ASR_ENGINE=faster_whisper
+    ports:
+      - "${WHISPER_PORT:-9000}:9000"
+    volumes:
+      - whisper_data:/app/models
+    networks:
+      - n8n-network
 
 volumes:
   postgres_data:
+    external: true
   n8n_data:
   ollama_data:
-  # redis_data: # Uncomment if using Redis
+  whisper_data:
 
 networks:
   n8n-network:

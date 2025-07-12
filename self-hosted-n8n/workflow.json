@@ -3,19 +3,20 @@
   "nodes": [
     {
       "parameters": {
-        "updates": [
-          "message"
-        ]
+        "updates": ["message"]
       },
       "id": "telegram-trigger",
       "name": "Telegram Trigger",
       "type": "n8n-nodes-base.telegramTrigger",
       "typeVersion": 1.1,
-      "position": [
-        260,
-        240
-      ],
-      "webhookId": "telegram-calendar"
+      "position": [260, 240],
+      "webhookId": "telegram-calendar",
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credential",
+          "name": "Telegram Bot"
+        }
+      }
     },
     {
       "parameters": {
@@ -45,10 +46,7 @@
       "name": "Check if Audio",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [
-        480,
-        240
-      ]
+      "position": [480, 240]
     },
     {
       "parameters": {
@@ -59,31 +57,69 @@
       "name": "Get Audio File",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [
-        700,
-        180
-      ]
+      "position": [700, 180],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credential",
+          "name": "Telegram Bot"
+        }
+      }
     },
     {
       "parameters": {
-        "model": "Xenova/whisper-small.en",
-        "binaryPropertyName": "data"
+        "method": "POST",
+        "url": "http://whisper:9000/asr",
+        "sendBinaryData": true,
+        "binaryPropertyName": "data",
+        "options": {
+          "bodyContentType": "multipart-form-data",
+          "useQueryString": false,
+          "splitIntoItems": false,
+          "followRedirect": true,
+          "followAllRedirects": false,
+          "ignoreHttpStatusErrors": false,
+          "proxy": "",
+          "timeout": 10000,
+          "retry": {
+            "enabled": false
+          }
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "audio_file",
+              "type": "formBinaryData",
+              "inputDataFieldName": "data"
+            },
+            {
+              "name": "task",
+              "value": "transcribe"
+            },
+            {
+              "name": "language",
+              "value": "en"
+            },
+            {
+              "name": "output",
+              "value": "json"
+            }
+          ]
+        }
       },
       "id": "transcribe-audio",
-      "name": "Transcribe Audio (Local)",
-      "type": "n8n-nodes-transcribe-audio.transcribeAudio",
-      "typeVersion": 1,
-      "position": [
-        920,
-        180
-      ]
+      "name": "Transcribe Audio (Local Whisper)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [920, 180]
     },
     {
       "parameters": {
         "messages": {
           "values": [
             {
-              "message": "=You are a calendar assistant. Parse this voice transcription and extract calendar event details.\n\nCurrent time: {{ $now.format('YYYY-MM-DD HH:mm') }}\nTimezone: {{ $now.timezone }}\n\nTranscription: \"{{ $json.transcription }}\"\n\nRules:\n- Always respond with valid JSON only\n- Default duration is 60 minutes\n- Parse relative times (tomorrow, next week, etc.)\n- If no time specified, default to 09:00\n\nResponse format:\n{\n  \"action\": \"create\",\n  \"title\": \"event title here\",\n  \"date\": \"YYYY-MM-DD\",\n  \"time\": \"HH:MM\", \n  \"duration\": 60,\n  \"description\": \"additional details if any\"\n}"
+              "message": "=You are a calendar assistant. Parse this voice transcription and extract calendar event details.\n\nCurrent time: {{ $now.format('YYYY-MM-DD HH:mm') }}\nTimezone: {{ $now.timezone }}\n\nTranscription: \"{{ $json.text }}\"\n\nRules:\n- Always respond with valid JSON only\n- Default duration is 60 minutes\n- Parse relative times (tomorrow, next week, etc.)\n- If no time specified, default to 09:00\n\nResponse format:\n{\n  \"action\": \"create\",\n  \"title\": \"event title here\",\n  \"date\": \"YYYY-MM-DD\",\n  \"time\": \"HH:MM\", \n  \"duration\": 60,\n  \"description\": \"additional details if any\"\n}"
             }
           ]
         },
@@ -96,23 +132,17 @@
       "name": "LLM Calendar Parser",
       "type": "@n8n/n8n-nodes-langchain.lmChatOllama",
       "typeVersion": 1,
-      "position": [
-        1140,
-        180
-      ]
+      "position": [1140, 180]
     },
     {
       "parameters": {
-        "jsCode": "// Parse LLM response and extract JSON\nconst response = items[0].json.response || items[0].json.text || '';\n\ntry {\n  // Try to extract JSON from response\n  const jsonMatch = response.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    const eventData = JSON.parse(jsonMatch[0]);\n    \n    // Validate required fields\n    if (!eventData.title || !eventData.date) {\n      throw new Error('Missing required fields');\n    }\n    \n    // Default values\n    eventData.time = eventData.time || '09:00';\n    eventData.duration = eventData.duration || 60;\n    eventData.action = eventData.action || 'create';\n    \n    // Create datetime strings for Google Calendar\n    const startDateTime = `${eventData.date}T${eventData.time}:00`;\n    const endDateTime = new Date(\n      new Date(startDateTime).getTime() + (eventData.duration * 60000)\n    ).toISOString().substring(0, 19);\n    \n    return [{\n      json: {\n        ...eventData,\n        startDateTime,\n        endDateTime,\n        success: true,\n        originalTranscription: items[0].json.transcription || 'N/A'\n      }\n    }];\n    \n  } else {\n    throw new Error('No JSON found in response');\n  }\n  \n} catch (error) {\n  return [{\n    json: {\n      success: false,\n      error: error.message,\n      originalResponse: response,\n      originalTranscription: items[0].json.transcription || 'N/A'\n    }\n  }];\n}"
+        "jsCode": "// Parse LLM response and extract JSON\nconst response = items[0].json.response || items[0].json.text || '';\nconst transcription = $('Transcribe Audio (Local Whisper)').item.json.text || 'N/A';\n\ntry {\n  // Try to extract JSON from response\n  const jsonMatch = response.match(/\\{[\\s\\S]*\\}/);\n  if (jsonMatch) {\n    const eventData = JSON.parse(jsonMatch[0]);\n    \n    // Validate required fields\n    if (!eventData.title || !eventData.date) {\n      throw new Error('Missing required fields');\n    }\n    \n    // Default values\n    eventData.time = eventData.time || '09:00';\n    eventData.duration = eventData.duration || 60;\n    eventData.action = eventData.action || 'create';\n    \n    // Create datetime strings for Google Calendar\n    const startDateTime = `${eventData.date}T${eventData.time}:00`;\n    const endDateTime = new Date(\n      new Date(startDateTime).getTime() + (eventData.duration * 60000)\n    ).toISOString().substring(0, 19);\n    \n    return [{\n      json: {\n        ...eventData,\n        startDateTime,\n        endDateTime,\n        success: true,\n        originalTranscription: transcription\n      }\n    }];\n    \n  } else {\n    throw new Error('No JSON found in response');\n  }\n  \n} catch (error) {\n  return [{\n    json: {\n      success: false,\n      error: error.message,\n      originalResponse: response,\n      originalTranscription: transcription\n    }\n  }];\n}"
       },
       "id": "parse-llm-response",
       "name": "Parse LLM Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [
-        1360,
-        180
-      ]
+      "position": [1360, 180]
     },
     {
       "parameters": {
@@ -141,10 +171,7 @@
       "name": "Check Parsing Success",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [
-        1580,
-        180
-      ]
+      "position": [1580, 180]
     },
     {
       "parameters": {
@@ -164,10 +191,7 @@
       "name": "Create Calendar Event",
       "type": "n8n-nodes-base.googleCalendar",
       "typeVersion": 1.2,
-      "position": [
-        1800,
-        120
-      ]
+      "position": [1800, 120]
     },
     {
       "parameters": {
@@ -179,14 +203,17 @@
       "name": "Send Success Message",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [
-        2020,
-        120
-      ]
+      "position": [2020, 120],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credential",
+          "name": "Telegram Bot"
+        }
+      }
     },
     {
       "parameters": {
-        "operation": "sendMessage", 
+        "operation": "sendMessage",
         "chatId": "={{ $('Telegram Trigger').item.json.message.chat.id }}",
         "text": "=❌ **Could not create event**\n\n🗣️ I heard: \"{{ $json.originalTranscription }}\"\n\n❗ Error: {{ $json.error }}\n\n💡 Try saying something like:\n\"Schedule meeting with John tomorrow at 2 PM for 1 hour\""
       },
@@ -194,10 +221,13 @@
       "name": "Send Error Message",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [
-        1800,
-        240
-      ]
+      "position": [1800, 240],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credential",
+          "name": "Telegram Bot"
+        }
+      }
     },
     {
       "parameters": {
@@ -209,10 +239,13 @@
       "name": "Send Help Message",
       "type": "n8n-nodes-base.telegram",
       "typeVersion": 1.2,
-      "position": [
-        700,
-        300
-      ]
+      "position": [700, 300],
+      "credentials": {
+        "telegramApi": {
+          "id": "telegram-bot-credential",
+          "name": "Telegram Bot"
+        }
+      }
     }
   ],
   "connections": {
