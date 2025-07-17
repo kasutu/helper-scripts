@@ -1,0 +1,71 @@
+# Dockerfile for Payload CMS
+# Production-ready Payload CMS application
+
+FROM node:18-alpine AS base
+
+# Install dependencies only when needed
+FROM base AS deps
+# Install system dependencies
+RUN apk add --no-cache libc6-compat curl
+WORKDIR /app
+
+# Install dependencies based on the preferred package manager
+COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* ./
+RUN \
+  if [ -f yarn.lock ]; then yarn --frozen-lockfile; \
+  elif [ -f package-lock.json ]; then npm ci; \
+  elif [ -f pnpm-lock.yaml ]; then corepack enable pnpm && pnpm i --frozen-lockfile; \
+  else echo "Lockfile not found." && exit 1; \
+  fi
+
+# Rebuild the source code only when needed
+FROM base AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+
+# Build the Payload CMS application
+RUN \
+  if [ -f yarn.lock ]; then yarn run build; \
+  elif [ -f package-lock.json ]; then npm run build; \
+  elif [ -f pnpm-lock.yaml ]; then corepack enable pnpm && pnpm run build; \
+  else echo "Lockfile not found." && exit 1; \
+  fi
+
+# Production image, copy all the files and run payload
+FROM base AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production
+
+# Create a non-root user
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 node
+
+# Install curl for health checks
+RUN apk add --no-cache curl
+
+# Copy built application
+COPY --from=builder --chown=node:nodejs /app/dist ./dist
+COPY --from=builder --chown=node:nodejs /app/node_modules ./node_modules
+COPY --from=builder --chown=node:nodejs /app/package.json ./package.json
+
+# Create directories for uploads and logs
+RUN mkdir -p /home/node/app/uploads /home/node/app/logs
+RUN chown -R node:nodejs /home/node/app
+
+# Copy static files if they exist
+COPY --from=builder --chown=node:nodejs /app/public ./public 2>/dev/null || true
+
+USER node
+
+EXPOSE 3001
+
+ENV PORT=3001
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD curl -f http://localhost:3001/api/health || exit 1
+
+# Start the application
+CMD ["node", "dist/server.js"]

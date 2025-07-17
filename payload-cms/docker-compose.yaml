@@ -1,43 +1,92 @@
-version: "3"
-
 services:
   payload:
-    image: node:18-alpine
+    build:
+      context: .
+      dockerfile: dockerfile
+    restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URI=mongodb://mongo/lattice-cms
+      - PORT=3001
     volumes:
-      - .:/home/node/app
-      - node_modules:/home/node/app/node_modules
-    working_dir: /home/node/app/
-    command: sh -c "corepack enable && corepack prepare pnpm@latest --activate && pnpm install && pnpm dev"
+      - uploads:/home/node/app/uploads
+      - ./logs:/home/node/app/logs
     depends_on:
-      - mongo
-      # - postgres
+      mongo:
+        condition: service_healthy
     env_file:
       - .env
+    networks:
+      - payload-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
-  # Ensure your DATABASE_URI uses 'mongo' as the hostname ie. mongodb://mongo/my-db-name
+  # Production MongoDB with lattice-cms database
   mongo:
-    image: mongo:latest
+    image: mongo:7.0-jammy
+    restart: unless-stopped
     ports:
       - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_ROOT_USERNAME:-admin}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_ROOT_PASSWORD:-changeme}
+      - MONGO_INITDB_DATABASE=lattice-cms
     command:
       - --storageEngine=wiredTiger
+      - --journal
+      - --bind_ip_all
+      - --auth
     volumes:
-      - data:/data/db
+      - mongo_data:/data/db
+      - mongo_config:/data/configdb
+      - ./mongodb-init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - payload-network
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/lattice-cms --quiet
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
     logging:
-      driver: none
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # Uncomment the following to use postgres
-  # postgres:
-  #   restart: always
-  #   image: postgres:latest
-  #   volumes:
-  #     - pgdata:/var/lib/postgresql/data
-  #   ports:
-  #     - "5432:5432"
+  # Redis for caching (optional but recommended for production)
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-changeme}
+    volumes:
+      - redis_data:/data
+    networks:
+      - payload-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
 volumes:
-  data:
-  # pgdata:
-  node_modules:
+  mongo_data:
+    driver: local
+  mongo_config:
+    driver: local
+  redis_data:
+    driver: local
+  uploads:
+    driver: local
+
+networks:
+  payload-network:
+    driver: bridge

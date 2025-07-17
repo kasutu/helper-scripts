@@ -1,0 +1,64 @@
+# Docker Compose override for production
+# This file extends the main docker-compose.yaml with production-specific settings
+
+services:
+  payload:
+    # Production-specific environment variables
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URI=mongodb://mongo/lattice-cms
+      - PAYLOAD_DISABLE_ADMIN=false
+    
+    # Remove port mapping in production (use reverse proxy)
+    ports: []
+    
+    # Add production labels for monitoring
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.payload.rule=Host(`your-domain.com`)"
+      - "traefik.http.routers.payload.entrypoints=websecure"
+      - "traefik.http.routers.payload.tls.certresolver=letsencrypt"
+      - "traefik.http.services.payload.loadbalancer.server.port=3001"
+    
+    # Production resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 3
+        window: 120s
+
+  mongo:
+    # Remove port mapping in production (internal network only)
+    ports: []
+    
+    # Production resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  redis:
+    # Remove port mapping in production (internal network only)
+    ports: []
+    
+    # Production resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '0.25'
+          memory: 128M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
